@@ -1,0 +1,7 @@
+max([ 
+  linear_inlet(spb:sp_inlet_temp), 
+  linear_cpu_margin(slot1:soc_therm_margin) + pid_cpu_margin(slot1:soc_therm_margin), 
+  linear_cpu_margin(slot2:soc_therm_margin) + pid_cpu_margin(slot2:soc_therm_margin), 
+  linear_cpu_margin(slot3:soc_therm_margin) + pid_cpu_margin(slot3:soc_therm_margin), 
+  linear_cpu_margin(slot4:soc_therm_margin) + pid_cpu_margin(slot4:soc_therm_margin) 
+])
