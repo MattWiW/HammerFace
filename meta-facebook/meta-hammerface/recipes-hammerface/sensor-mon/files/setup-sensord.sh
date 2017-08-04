@@ -33,7 +33,7 @@
 echo "Get MB FW version... "
 /usr/bin/fw-util mb --version > /dev/null
 
-echo -n "Setup sensor monitoring for FBTP... "
+echo -n "Setup sensor monitoring for HammerFace... "
 
 runsv /etc/sv/sensord > /dev/null 2>&1 &
 
