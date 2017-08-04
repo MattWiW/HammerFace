@@ -35,9 +35,9 @@ do_install_bmc_issue () {
 #      print_version="${MACHINE}-${sha}"
 #    fi
 
-    echo "OpenBMC Release ${print_version}" > ${D}${sysconfdir}/issue
+    echo "OpenBMC Release ${version}" > ${D}${sysconfdir}/issue
     echo >> ${D}${sysconfdir}/issue
-    echo "OpenBMC Release ${print_version} %h" > ${D}${sysconfdir}/issue.net
+    echo "OpenBMC Release ${version} %h" > ${D}${sysconfdir}/issue.net
     echo >> ${D}${sysconfdir}/issue.net
 }
 
