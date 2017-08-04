@@ -42,7 +42,7 @@
 
 #define BIT(value, index) ((value >> index) & 1)
 
-#define FBTP_PLATFORM_NAME "hammerface"
+#define FBTP_PLATFORM_NAME "fbtp"
 #define LAST_KEY "last_key"
 #define FBTP_MAX_NUM_SLOTS 1
 #define GPIO_VAL "/sys/class/gpio/gpio%d/value"
@@ -160,6 +160,11 @@
 
 #define CPLD_BUS_ID 0x6
 #define CPLD_ADDR 0xA0
+
+//DC module
+#define DC_BUS_ID 0x7
+#define DC_ADDR 0xC2
+#define DC_DEBUG
 
 static uint8_t gpio_rst_btn[] = { 0, GPIO_POWER_RESET};
 const static uint8_t gpio_id_led[] = { 0, 41, 40, 43, 42 };
@@ -319,6 +324,13 @@ const uint8_t mb_sensor_list[] = {
   MB_SENSOR_CONN_P12V_INA230_VOL,
   MB_SENSOR_CONN_P12V_INA230_CURR,
   MB_SENSOR_CONN_P12V_INA230_PWR,
+
+   /*Tony test*/
+  DC_SENSOR_IN_VOLT,
+  DC_SENSOR_OUT_VOLT,
+  DC_SENSOR_OUT_CURR,
+  DC_SENSOR_OUT_POWER,
+  DC_SENSOR_TEMP,  
 };
 
 // List of NIC sensors to be monitored
@@ -1967,7 +1979,7 @@ read_INA230 (uint8_t sensor_num, float *value, int pot) {
   } else {
    /*previous_addr - it is used for identifying the slave address.
    *                If the slave address is changed, bus_voltage and shunt_voltage are updated.
-   *Rshunt - it is defined by the schematic. It will be 2m ohm in the hammerface
+   *Rshunt - it is defined by the schematic. It will be 2m ohm in the fbtp
    *
    */
     static uint8_t previous_addr = 0;
@@ -2223,6 +2235,137 @@ error_exit:
   if (ret == READING_NA && ++retry[i_retry] <= 3)
     ret = READING_SKIP;
 
+  return ret;
+}
+
+
+static int open_i2c_bus(uint8_t bus_id)
+{
+  int fd;
+  char fn[32];
+  unsigned int retry = MAX_READ_RETRY;
+
+  snprintf(fn, sizeof(fn), "/dev/i2c-%d", bus_id);
+  while (retry)
+  {
+    fd = open(fn, O_RDWR);
+    if ( fd < 0 )
+    {
+      syslog(LOG_WARNING, "read_vr_volt: i2c_open failed for bus#%x\n", bus_id);
+      retry--;
+      msleep(100);
+    }
+    else
+    {
+      break;
+    }
+
+    if( 0 == retry )
+    {
+      goto error_exit;
+    }
+  }
+
+  return fd;
+
+error_exit:
+  if ( fd > 0 )
+  {
+    close(fd);
+  }
+
+  return PAL_ENOTSUP;
+}
+
+static int
+read_dc_sensors(uint8_t bus_id, uint8_t slave_addr, uint8_t reg,float *value)
+{
+  int ret = -1;
+  int fd;
+  int retry;
+  uint8_t tcount, rcount;
+  uint8_t tbuf[16] = {0};
+  uint8_t rbuf[16] = {0};
+  static float current_out = 0;
+  static float voltage_out = 0;
+
+  fd = open_i2c_bus(bus_id);
+  if ( fd < 0 )
+  {
+    goto error_exit;
+  }
+
+  tbuf[0] = reg;
+  tcount = 1;
+  rcount = 2;
+
+  retry = MAX_READ_RETRY;
+
+#ifdef DC_DEBUG
+  syslog(LOG_WARNING, "[%s] bus#%x, dev#%x tbuf[0]=%x\n",__func__, bus_id, slave_addr, tbuf[0]);
+#endif
+
+  while ( retry )
+  {
+    ret = i2c_rdwr_msg_transfer(fd, slave_addr, tbuf, tcount, rbuf, rcount);
+    if ( ret < 0 )
+    {
+      syslog(LOG_WARNING, "[%s] i2c_io failed for bus#%x, dev#%x\n", __func__, bus_id, slave_addr);
+
+      retry--;
+
+      msleep(100);
+    }
+    else
+    {
+      break;
+    }
+
+    if ( 0 == retry )
+    {
+      goto error_exit;
+    }
+  }
+
+#ifdef DC_DEBUG
+  syslog(LOG_WARNING, "[%s] bus#%x, dev#%x rbuf[0]=%x rbuf[1]=%x\n",__func__, bus_id, slave_addr, rbuf[0], rbuf[1]);
+#endif
+
+  switch (reg)
+  {
+    case DC_IN_VOLT:
+      *value = ( rbuf[0] + ((rbuf[1]&0x7)<<8 ) ) * 0.125;
+    break;
+
+    case DC_OUT_VOLT:
+      voltage_out = ( rbuf[0] + (rbuf[1]<<8) ) * 0.000244;
+      *value = voltage_out;
+    break;
+
+    case DC_TEMP:
+      *value = ( rbuf[0] + ( (rbuf[1]&0x7)<<8 ) ) * 0.25;
+    break;
+
+    case DC_OUT_POWER:
+       *value = current_out * voltage_out;
+    break;
+
+    case DC_OUT_CURR:
+       current_out = ( rbuf[0] + ( (rbuf[1]&0x7)<<8 ) ) * 0.125;
+       *value = current_out;
+    break;
+  }
+
+#ifdef DC_DEBUG
+  syslog(LOG_WARNING,"[%s] Reading:%f", __func__, *value);
+#endif
+
+error_exit:
+  if ( fd > 0 )
+  {
+    close(fd);
+  }
+  
   return ret;
 }
 
@@ -3446,7 +3589,9 @@ pal_sensor_read_raw(uint8_t fru, uint8_t sensor_num, void *value) {
   //case FRU_RISER_SLOT2:
   //case FRU_RISER_SLOT3:
   //case FRU_RISER_SLOT4:
-    server_off = is_server_off();
+    //tony test
+    //server_off = is_server_off();
+    server_off = false;
     if (server_off) {
       poweron_10s_flag = 0;
       // Power is OFF, so only some of the sensors can be read
@@ -3503,6 +3648,22 @@ pal_sensor_read_raw(uint8_t fru, uint8_t sensor_num, void *value) {
         break;
       case MB_SENSOR_POWER_FAIL:
         ret = read_CPLD_power_fail_sts (fru, sensor_num, (float*) value, poweron_10s_flag);
+        break;
+      //Tony add DC sensors
+      case DC_SENSOR_IN_VOLT:
+        ret = read_dc_sensors(DC_BUS_ID, DC_ADDR, DC_IN_VOLT, (float*) value);
+        break;
+      case DC_SENSOR_OUT_VOLT:
+        ret = read_dc_sensors(DC_BUS_ID, DC_ADDR, DC_OUT_VOLT, (float*) value);
+        break;
+      case DC_SENSOR_OUT_CURR:
+        ret = read_dc_sensors(DC_BUS_ID, DC_ADDR, DC_OUT_CURR, (float*) value);
+        break;
+      case DC_SENSOR_OUT_POWER:
+        ret = read_dc_sensors(DC_BUS_ID, DC_ADDR, DC_OUT_POWER, (float*) value);
+        break;
+      case DC_SENSOR_TEMP:
+        ret = read_dc_sensors(DC_BUS_ID, DC_ADDR, DC_TEMP, (float*) value);
         break;
       default:
         ret = READING_NA;
@@ -3584,6 +3745,24 @@ pal_sensor_read_raw(uint8_t fru, uint8_t sensor_num, void *value) {
       case MB_SENSOR_HSC_IN_POWER:
         ret = read_sensor_reading_from_ME(MB_SENSOR_HSC_IN_POWER, (float*) value);
         break;
+      
+      //Tony add DC sensors
+      case DC_SENSOR_IN_VOLT:
+        ret = read_dc_sensors(DC_BUS_ID, DC_ADDR, DC_IN_VOLT, (float*) value);
+        break;
+      case DC_SENSOR_OUT_VOLT:
+        ret = read_dc_sensors(DC_BUS_ID, DC_ADDR, DC_OUT_VOLT, (float*) value);
+        break;
+      case DC_SENSOR_OUT_CURR:
+        ret = read_dc_sensors(DC_BUS_ID, DC_ADDR, DC_OUT_CURR, (float*) value);
+        break;
+      case DC_SENSOR_OUT_POWER:
+        ret = read_dc_sensors(DC_BUS_ID, DC_ADDR, DC_OUT_POWER, (float*) value);
+        break;
+      case DC_SENSOR_TEMP:
+        ret = read_dc_sensors(DC_BUS_ID, DC_ADDR, DC_TEMP, (float*) value);
+        break;
+      
       //CPU, DIMM, PCH Temp
       case MB_SENSOR_CPU0_TEMP:
       case MB_SENSOR_CPU1_TEMP:
@@ -3604,16 +3783,16 @@ pal_sensor_read_raw(uint8_t fru, uint8_t sensor_num, void *value) {
         break;
       //VR Sensors
       case MB_SENSOR_VR_CPU0_VCCIN_TEMP:
-        ret = vr_read_temp(VR_CPU0_VCCIN, VR_LOOP_PAGE_0, (float*) value);
+        ret = vr_read_PI3020_temp(VR_CPU0_VCCIN, (float*) value);
         break;
       case MB_SENSOR_VR_CPU0_VCCIN_CURR:
-        ret = vr_read_curr(VR_CPU0_VCCIN, VR_LOOP_PAGE_0, (float*) value);
+        ret = vr_read_PI3020_current(VR_CPU0_VCCIN, (float*) value);
         break;
       case MB_SENSOR_VR_CPU0_VCCIN_VOLT:
-        ret = vr_read_volt(VR_CPU0_VCCIN, VR_LOOP_PAGE_0, (float*) value);
+        ret = vr_read_PI3020_volt(VR_CPU0_VCCIN, (float*) value);
         break;
       case MB_SENSOR_VR_CPU0_VCCIN_POWER:
-        ret = vr_read_power(VR_CPU0_VCCIN, VR_LOOP_PAGE_0, (float*) value);
+        ret = vr_read_PI3020_power(VR_CPU0_VCCIN, (float*) value);
         break;
       case MB_SENSOR_VR_CPU0_VSA_TEMP:
         ret = vr_read_temp(VR_CPU0_VSA, VR_LOOP_PAGE_1, (float*) value);
@@ -3665,25 +3844,25 @@ pal_sensor_read_raw(uint8_t fru, uint8_t sensor_num, void *value) {
         break;
       case MB_SENSOR_VR_CPU1_VCCIN_TEMP:
         if (is_cpu1_socket_occupy())
-          ret = vr_read_temp(VR_CPU1_VCCIN, VR_LOOP_PAGE_0, (float*) value);
+          ret = vr_read_PI3020_temp(VR_CPU1_VCCIN, (float*) value);
         else
           ret = READING_NA;
         break;
       case MB_SENSOR_VR_CPU1_VCCIN_CURR:
         if (is_cpu1_socket_occupy())
-          ret = vr_read_curr(VR_CPU1_VCCIN, VR_LOOP_PAGE_0, (float*) value);
+          ret = vr_read_PI3020_current(VR_CPU1_VCCIN, (float*) value);
         else
           ret = READING_NA;
         break;
       case MB_SENSOR_VR_CPU1_VCCIN_VOLT:
         if (is_cpu1_socket_occupy())
-          ret = vr_read_volt(VR_CPU1_VCCIN, VR_LOOP_PAGE_0, (float*) value);
+          ret = vr_read_PI3020_volt(VR_CPU1_VCCIN, (float*) value);
         else
           ret = READING_NA;
         break;
       case MB_SENSOR_VR_CPU1_VCCIN_POWER:
         if (is_cpu1_socket_occupy())
-          ret = vr_read_power(VR_CPU1_VCCIN, VR_LOOP_PAGE_0, (float*) value);
+          ret = vr_read_PI3020_power(VR_CPU1_VCCIN, (float*) value);
         else
           ret = READING_NA;
         break;
@@ -3860,7 +4039,7 @@ pal_sensor_read_raw(uint8_t fru, uint8_t sensor_num, void *value) {
         return -1;
       }
     }
-    if (is_server_off() != server_off) {
+    if ( /*is_server_off()*/false != server_off) {
       /* server power status changed while we were reading the sensor.
        * this sensor is potentially NA. */
       return pal_sensor_read_raw(fru, sensor_num, value);
@@ -4288,6 +4467,21 @@ pal_get_sensor_name(uint8_t fru, uint8_t sensor_num, char *name) {
     case MB_SENSOR_PROCESSOR_FAIL:
       sprintf(name, "MB_PROCESSOR_FAIL");
       break;
+    case DC_SENSOR_IN_VOLT:
+      sprintf(name, "MB_DC_IN_VOLT");
+      break;
+    case DC_SENSOR_OUT_VOLT:
+      sprintf(name, "MB_DC_OUT_VOLT");
+      break;
+    case DC_SENSOR_OUT_CURR:
+      sprintf(name, "MB_DC_OUT_CURRENT");
+      break;
+    case DC_SENSOR_OUT_POWER:
+      sprintf(name, "MB_DC_OUT_POWER");
+      break;
+    case DC_SENSOR_TEMP:
+      sprintf(name, "MB_DC_OUT_TEMP");
+      break;    
 
     default:
       return -1;
@@ -4365,6 +4559,7 @@ pal_get_sensor_units(uint8_t fru, uint8_t sensor_num, char *units) {
     case MB_SENSOR_C4_3_NVME_CTEMP:
     case MB_SENSOR_C4_4_NVME_CTEMP:
     case MB_SENSOR_HSC_TEMP:
+    case DC_SENSOR_TEMP:
       sprintf(units, "C");
       break;
     case MB_SENSOR_FAN0_TACH:
@@ -4396,6 +4591,8 @@ pal_get_sensor_units(uint8_t fru, uint8_t sensor_num, char *units) {
     case MB_SENSOR_C3_P12V_INA230_VOL:
     case MB_SENSOR_C4_P12V_INA230_VOL:
     case MB_SENSOR_CONN_P12V_INA230_VOL:
+    case DC_SENSOR_OUT_VOLT:
+    case DC_SENSOR_IN_VOLT:    
       sprintf(units, "Volts");
       break;
     case MB_SENSOR_HSC_OUT_CURR:
@@ -4415,6 +4612,7 @@ pal_get_sensor_units(uint8_t fru, uint8_t sensor_num, char *units) {
     case MB_SENSOR_C3_P12V_INA230_CURR:
     case MB_SENSOR_C4_P12V_INA230_CURR:
     case MB_SENSOR_CONN_P12V_INA230_CURR:
+    case DC_SENSOR_OUT_CURR:
       sprintf(units, "Amps");
       break;
     case MB_SENSOR_HSC_IN_POWER:
@@ -4436,6 +4634,7 @@ pal_get_sensor_units(uint8_t fru, uint8_t sensor_num, char *units) {
     case MB_SENSOR_C3_P12V_INA230_PWR:
     case MB_SENSOR_C4_P12V_INA230_PWR:
     case MB_SENSOR_CONN_P12V_INA230_PWR:
+    case DC_SENSOR_OUT_POWER:
       sprintf(units, "Watts");
       break;
     default:
@@ -6109,6 +6308,8 @@ is_cpu1_socket_occupy(void) {
     return false;
   }
 
+  //tony test
+  val = 0;
   if (val) {
     return false;
   } else {

@@ -149,6 +149,25 @@ enum {
   FRU_RISER_SLOT4 = 5,
 };
 
+enum {
+  DC_IN_VOLT = 0x88,
+  DC_OUT_VOLT = 0x8B,
+  DC_OUT_CURR = 0x8C,
+  DC_TEMP = 0x8D,
+  DC_OUT_POWER = 0x96,
+};
+
+enum {
+  HSC_IN_VOLT = 0x88,
+  HSC_IN_CURR = 0x89,
+  HSC_OUT_VOLT = 0x8B,
+  HSC_OUT_CURR = 0x8C,
+  HSC_OUT_POWER = 0x96,
+  HSC_IN_POWER = 0x97,
+  HSC_TEMP = 0x8D,
+};
+
+
 // Sensors Under Side Plane
 enum {
   MB_SENSOR_HSC_IN_POWER = 0x29,
@@ -158,6 +177,13 @@ enum {
 
   MB_SENSOR_CPU0_TJMAX = 0x30,
   MB_SENSOR_CPU1_TJMAX = 0x31,
+
+  /*Tony test*/
+  DC_SENSOR_IN_VOLT = 0x33,
+  DC_SENSOR_OUT_VOLT = 0x34,
+  DC_SENSOR_OUT_CURR = 0x35,
+  DC_SENSOR_OUT_POWER = 0x36,
+  DC_SENSOR_TEMP = 0x37,
 
   MB_SENSOR_PCH_TEMP = 0x08,
   MB_SENSOR_CPU0_THERM_MARGIN = 0x09,

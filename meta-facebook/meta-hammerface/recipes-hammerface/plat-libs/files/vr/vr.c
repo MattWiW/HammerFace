@@ -34,8 +34,15 @@
 #include <sys/ioctl.h>
 #include <openbmc/obmc-i2c.h>
 #include <openbmc/edb.h>
+#include <openbmc/obmc-pal.h>
 #include "vr.h"
 
+#define DEBUG
+//PI3020 sensor factor
+#define STEPS (3.6/4095)
+#define CURRENT_STEPS (16*STEPS)
+#define POWER_STEPS 2
+#define VOLTAGE_STEPS (16*STEPS)
 #define VR_BUS_ID 0x5
 
 #define VR_FW_PAGE 0x2f
@@ -128,6 +135,462 @@ msleep(int msec) {
   while(nanosleep(&req, &req) == -1 && errno == EINTR) {
     continue;
   }
+}
+
+int open_vr_bus()
+{
+  int fd;
+  char fn[32];
+  unsigned int retry = MAX_READ_RETRY;
+
+  snprintf(fn, sizeof(fn), "/dev/i2c-%d", VR_BUS_ID);
+
+  while (retry)
+  {
+    fd = open(fn, O_RDWR);
+    if ( fd < 0 )
+    {
+      syslog(LOG_WARNING, "read_vr_volt: i2c_open failed for bus#%x\n", VR_BUS_ID);
+      retry--;
+      msleep(100);
+    }
+    else
+    {
+      break;
+    }
+
+    if( 0 == retry )
+    {
+      goto error_exit;
+    }
+  }
+
+  return fd;
+
+error_exit:
+  if ( fd > 0 )
+  {
+    close(fd);
+  }
+
+  return PAL_ENOTSUP;
+}
+
+int vr_read_PI3020_volt(uint8_t vr, float *value)
+{
+  int ret = -1;
+  int fd;
+  uint8_t tcount, rcount;
+  uint8_t tbuf[16] = {0};
+  uint8_t rbuf[16] = {0};
+  int retry;
+
+  syslog(LOG_WARNING,"[%s] VOLTAGE_STEPS: %f", __func__, VOLTAGE_STEPS);
+  fd = open_vr_bus();
+  if ( fd < 0 )
+  {
+    goto error_exit;
+  }
+
+  //Change the memoery address
+  tbuf[0] = CMD_READ;
+  tbuf[1] = IN_VOL_RAW;
+  tcount = 2;
+  rcount = 0;
+
+  retry = MAX_READ_RETRY;
+
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] bus#%x, dev#%x tbuf[0]=%x tbuf[1]=%x\n", __func__, VR_BUS_ID, vr, tbuf[0], tbuf[1]);
+#endif
+
+  while ( retry )
+  {
+    ret = i2c_rdwr_msg_transfer(fd, vr, tbuf, tcount, rbuf, rcount);
+    if ( ret < 0 )
+    {
+      syslog(LOG_WARNING, "[%s] i2c_io failed for bus#%x, dev#%x\n", __func__, VR_BUS_ID, vr);
+      retry--;
+      msleep(100);
+    }
+    else
+    {
+      break;
+    }
+
+    if ( 0 == retry )
+    {
+      goto error_exit;
+    }
+  }
+
+  //Read the data from the memory address
+  tbuf[0] = CMD_READ;
+  tcount = 1;
+  rcount = 1;
+
+  retry = MAX_READ_RETRY;
+
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] bus#%x, dev#%x tbuf[0]=%x\n", __func__, VR_BUS_ID, vr, tbuf[0]);
+#endif
+  while ( retry )
+  {
+    ret = i2c_rdwr_msg_transfer(fd, vr, tbuf, tcount, rbuf, rcount);
+    if ( ret < 0 )
+    {
+      syslog(LOG_WARNING, "[%s] i2c_io failed for bus#%x, dev#%x\n", __func__, VR_BUS_ID, vr);
+
+      retry--;
+
+      msleep(100);
+    }
+    else
+    {
+      break;
+    }
+
+    if ( 0 == retry )
+    {
+      goto error_exit;
+    }
+  }
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] bus#%x, dev#%x rbuf[0]=%x \n", __func__, VR_BUS_ID, vr, rbuf[0]);
+#endif
+
+  //Calculate Vol.
+  //424.9 ohm is the sum of the resistor
+  //24.9 ohm is the divided voltage
+  *value = rbuf[0] * VOLTAGE_STEPS * (424.9/24.9);
+
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] VOLTAGE_STEPS:%f Reading:%f\n", __func__, VOLTAGE_STEPS, *value);
+#endif
+
+error_exit:
+
+  if ( fd > 0 )
+  {
+    close(fd);
+  }
+
+  return ret;
+}
+
+int vr_read_PI3020_current(uint8_t vr, float *value)
+{
+  int ret = -1;
+  int fd;
+  uint8_t tcount, rcount;
+  uint8_t tbuf[16] = {0};
+  uint8_t rbuf[16] = {0};
+  int retry;
+
+  syslog(LOG_WARNING,"[%s] CURRENT_STEPS: %f", __func__, CURRENT_STEPS);
+
+  fd = open_vr_bus();
+  if ( fd < 0 )
+  {
+    goto error_exit;
+  }
+
+  //Change the memory address
+  tbuf[0] = CMD_READ;
+  tbuf[1] = IN_CURRENT_RAW;
+  tcount = 2;
+  rcount = 0;
+
+  retry = MAX_READ_RETRY;
+
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] bus#%x, dev#%x tbuf[0]=%x tbuf[1]=%x\n", __func__, VR_BUS_ID, vr, tbuf[0], tbuf[1]);
+#endif
+
+  while ( retry )
+  {
+    ret = i2c_rdwr_msg_transfer(fd, vr, tbuf, tcount, rbuf, rcount);
+    if ( ret < 0 )
+    {
+      syslog(LOG_WARNING, "[%s] i2c_io failed for bus#%x, dev#%x\n", __func__, VR_BUS_ID, vr);
+
+      retry--;
+
+      msleep(100);
+    }
+    else
+    {
+      break;
+    }
+
+    if ( 0 == retry )
+    {
+      goto error_exit;
+    }
+  }
+
+  //Read the data from the memory address
+  tbuf[0] = CMD_READ;
+  tcount = 1;
+  rcount = 1;
+
+  retry = MAX_READ_RETRY;
+
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] bus#%x, dev#%x tbuf[0]=%x\n", __func__, VR_BUS_ID, vr, tbuf[0]);
+#endif
+  while ( retry )
+  {
+    ret = i2c_rdwr_msg_transfer(fd, vr, tbuf, tcount, rbuf, rcount);
+    if ( ret < 0 )
+    {
+      syslog(LOG_WARNING, "[%s] i2c_io failed for bus#%x, dev#%x\n", __func__, VR_BUS_ID, vr);
+
+      retry--;
+
+      msleep(100);
+    }
+    else
+    {
+      break;
+   }
+
+    if ( 0 == retry )
+    {
+      goto error_exit;
+    }
+  }
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] bus#%x, dev#%x rbuf[0]=%x \n", __func__, VR_BUS_ID, vr, rbuf[0]);
+#endif
+
+  // Calculate Current
+  // 0.125 = amplifier * 5m ohm = 25 * 5m
+  *value = (rbuf[0] * CURRENT_STEPS)/0.250 ;
+
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] CURRENT_STEPS:%f Reading:%f\n", __func__, CURRENT_STEPS, *value);
+#endif
+
+error_exit:
+
+  if ( fd > 0 )
+  {
+    close(fd);
+  }
+
+  return ret;
+}
+
+int vr_read_PI3020_power(uint8_t vr, float *value)
+{
+  int ret = -1;
+  int fd;
+  uint8_t tcount, rcount;
+  uint8_t tbuf[16] = {0};
+  uint8_t rbuf[16] = {0};
+  int retry;
+
+  syslog(LOG_WARNING,"[%s] POWER_STEPS: %d", __func__, POWER_STEPS);
+
+  fd = open_vr_bus();
+  if ( fd < 0 )
+  {
+    goto error_exit;
+  }
+
+  //Change the memory address
+  tbuf[0] = CMD_READ;
+  tbuf[1] = IN_PWR_REG;
+
+  tcount = 2;
+  rcount = 0;
+
+  retry = MAX_READ_RETRY;
+
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] bus#%x, dev#%x tbuf[0]=%x tbuf[1]=%x\n", __func__, VR_BUS_ID, vr, tbuf[0], tbuf[1]);
+#endif
+
+  while ( retry )
+  {
+    ret = i2c_rdwr_msg_transfer(fd, vr, tbuf, tcount, rbuf, rcount);
+    if ( ret < 0 )
+    {
+      syslog(LOG_WARNING, "[%s] i2c_io failed for bus#%x, dev#%x\n", __func__, VR_BUS_ID, vr);
+
+      retry--;
+
+      msleep(100);
+    }
+    else
+    {
+      break;
+    }
+
+    if ( 0 == retry )
+    {
+      goto error_exit;
+    }
+  }
+
+  //Read the data from the memory address
+  tbuf[0] = CMD_READ;
+  tcount = 1;
+  rcount = 1;
+
+  retry = MAX_READ_RETRY;
+
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] bus#%x, dev#%x tbuf[0]=%x\n", __func__, VR_BUS_ID, vr, tbuf[0]);
+#endif
+
+  while ( retry )
+  {
+    ret = i2c_rdwr_msg_transfer(fd, vr, tbuf, tcount, rbuf, rcount);
+    if ( ret < 0 )
+    {
+      syslog(LOG_WARNING, "[%s] i2c_io failed for bus#%x, dev#%x\n", __func__, VR_BUS_ID, vr);
+
+      retry--;
+
+      msleep(100);
+    }
+    else
+    {
+      break;
+   }
+
+    if ( 0 == retry )
+    {
+      goto error_exit;
+    }
+  }
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] bus#%x, dev#%x rbuf[0]=%x \n", __func__, VR_BUS_ID, vr, rbuf[0]);
+#endif
+
+  // Calculate Power.
+  *value = (float)(rbuf[0]*POWER_STEPS);
+
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] POWER_STEPS:%d Reading:%f\n", __func__, POWER_STEPS, *value);
+#endif
+
+error_exit:
+
+  if ( fd > 0 )
+  {
+    close(fd);
+  }
+
+  return ret;
+}
+
+int vr_read_PI3020_temp(uint8_t vr, float *value)
+{
+  int ret = -1;
+  int fd;
+  uint8_t tcount, rcount;
+  uint8_t tbuf[16] = {0};
+  uint8_t rbuf[16] = {0};
+  int retry;
+
+  syslog(LOG_WARNING,"[%s] STEP: %f", __func__, STEPS);
+
+  fd = open_vr_bus();
+  if ( fd < 0 )
+  {
+    goto error_exit;
+  }
+
+  //Change the memory address
+  tbuf[0] = CMD_READ;
+  tbuf[1] = TEMP_REG;
+
+  tcount = 2;
+  rcount = 0;
+
+  retry = MAX_READ_RETRY;
+
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] bus#%x, dev#%x tbuf[0]=%x tbuf[1]=%x\n", __func__, VR_BUS_ID, vr, tbuf[0], tbuf[1]);
+#endif
+
+  while ( retry )
+  {
+    ret = i2c_rdwr_msg_transfer(fd, vr, tbuf, tcount, rbuf, rcount);
+    if ( ret < 0 )
+    {
+      syslog(LOG_WARNING, "[%s] i2c_io failed for bus#%x, dev#%x\n", __func__, VR_BUS_ID, vr);
+
+      retry--;
+
+      msleep(100);
+    }
+    else
+    {
+      break;
+    }
+
+    if ( 0 == retry )
+    {
+      goto error_exit;
+    }
+  }
+
+  //Read the data from the memory address
+  tbuf[0] = CMD_READ;
+  tcount = 1;
+  rcount = 1;
+
+  retry = MAX_READ_RETRY;
+
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] bus#%x, dev#%x tbuf[0]=%x\n", __func__, VR_BUS_ID, vr, tbuf[0]);
+#endif
+
+  while ( retry )
+  {
+    ret = i2c_rdwr_msg_transfer(fd, vr, tbuf, tcount, rbuf, rcount);
+    if ( ret < 0 )
+    {
+      syslog(LOG_WARNING, "[%s] i2c_io failed for bus#%x, dev#%x\n", __func__, VR_BUS_ID, vr);
+
+      retry--;
+
+      msleep(100);
+    }
+    else
+    {
+      break;
+    }
+
+    if ( 0 == retry )
+    {
+      goto error_exit;
+    }
+  }
+
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] bus#%x, dev#%x rbuf[0]=%x \n", __func__, VR_BUS_ID, vr, rbuf[0]);
+#endif
+
+  // Calculate Temp.
+  *value = rbuf[0];
+
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] STEPS:%f Reading:%f\n", __func__, STEPS, *value);
+#endif
+
+error_exit:
+
+  if ( fd > 0 )
+  {
+    close(fd);
+  }
+
+  return ret;
 }
 
 int
