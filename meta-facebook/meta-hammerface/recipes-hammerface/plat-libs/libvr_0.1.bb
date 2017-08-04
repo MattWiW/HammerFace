@@ -9,7 +9,7 @@ LIC_FILES_CHKSUM = "file://vr.c;beginline=8;endline=20;md5=da35978751a9d71b73679
 
 SRC_URI = "file://vr \
           "
-DEPENDS += "obmc-i2c libedb"
+DEPENDS += "obmc-pal obmc-i2c libedb"
 RDEPENDS_${PN} += "libedb"
 
 S = "${WORKDIR}/vr"
