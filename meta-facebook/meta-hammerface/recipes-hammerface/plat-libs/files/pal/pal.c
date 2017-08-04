@@ -164,7 +164,7 @@
 //DC module
 #define DC_BUS_ID 0x7
 #define DC_ADDR 0xC2
-#define DC_DEBUG
+//#define DC_DEBUG
 
 static uint8_t gpio_rst_btn[] = { 0, GPIO_POWER_RESET};
 const static uint8_t gpio_id_led[] = { 0, 41, 40, 43, 42 };

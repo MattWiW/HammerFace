@@ -37,7 +37,8 @@
 #include <openbmc/obmc-pal.h>
 #include "vr.h"
 
-#define DEBUG
+//#define DEBUG
+
 //PI3020 sensor factor
 #define STEPS (3.6/4095)
 #define CURRENT_STEPS (16*STEPS)
