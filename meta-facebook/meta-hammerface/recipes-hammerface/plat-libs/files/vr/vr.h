@@ -45,6 +45,47 @@ enum {
 };
 
 enum {
+  CMD_READ = 0xDC,
+  CMD_WRITE = 0xDA,
+  CMD_SAVE = 0xDB,
+};
+
+enum
+{
+  //temperature
+  TEMP_LOW_MULT1 = 0x10,
+  TEMP_HIGH_MULT1 = 0x11,
+  TEMP_LOW_OFFSET1 = 0x12,
+  TEMP_HIGH_OFFSET1 = 0x13,
+  TEMP_LOW_MULT2 = 0x14,
+  TEMP_HIGH_MULT2 = 0x15,
+  TEMP_REG = 0x16,
+  TEMP_ZONE = 0x17,
+
+  //Current
+  OUT_CURRENT_LOW_MULT1 = 0x34,
+  OUT_CURRENT_HIGH_MULT1 = 0x35,
+  OUT_CURRENT_LOW_OFFSET1 = 0x36,
+  OUT_CURRENT_HIGH_OFFSET1 = 0x37,
+  OUT_CURRENT_LOW_MULT2 = 0x38,
+  OUT_CURRENT_HIGH_MULT2 = 0x39,
+  OUT_CURRENT_REG = 0x3A,
+  OUT_CURRENT_SVID = 0x3C,
+
+  //Power
+  IN_PWR_LOW_MULT1 = 0x20,
+  IN_PWR_HIGH_MULT1 = 0x21,
+  IN_PWR_LOW_OFFSET1 = 0x22,
+  IN_PWR_HIGH_OFFSET1 = 0x23,
+  IN_PWR_LOW_MULT2 = 0x24,
+  IN_PWR_HIGH_MULT2 = 0x25,
+  IN_PWR_REG = 0x27,
+  IN_PWR_SVID = 0x28,
+  IN_VOL_RAW = 0x2B,
+  IN_CURRENT_RAW = 0x2C,
+};
+
+enum {
   VR_LOOP_PAGE_0 = 0x60,
   VR_LOOP_PAGE_1 = 0x61,
   VR_LOOP_PAGE_2 = 0x62
@@ -55,6 +96,11 @@ enum {
   VR_STATUS_FAILURE       = -1,
   VR_STATUS_NOT_AVAILABLE = -2,
 };
+
+int vr_read_PI3020_volt(uint8_t vr, float *value);
+int vr_read_PI3020_current(uint8_t vr, float *value);
+int vr_read_PI3020_power(uint8_t vr, float *value);
+int vr_read_PI3020_temp(uint8_t vr, float *value);
 
 int vr_fw_version(uint8_t vr, char *outvers_str);
 int vr_fw_update(uint8_t fru, uint8_t board_info, const char *file);
